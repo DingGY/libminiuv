@@ -1,0 +1,10 @@
+{
+    "files.associations": {
+        "errno.h": "c",
+        "unordered_map": "c",
+        "fcntl.h": "c",
+        "pthread.h": "c",
+        "pool.h": "c"
+    },
+    "C_Cpp.errorSquiggles": "Disabled"
+}
