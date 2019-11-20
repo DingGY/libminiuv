@@ -4,7 +4,8 @@
         "unordered_map": "c",
         "fcntl.h": "c",
         "pthread.h": "c",
-        "pool.h": "c"
+        "pool.h": "c",
+        "core.h": "c"
     },
     "C_Cpp.errorSquiggles": "Disabled"
 }

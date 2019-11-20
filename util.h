@@ -10,6 +10,6 @@
 #define FAILED -1
 #define SUCCESS 0
 #define MINIUV_STOP_RUNNING 0x00000001
-
-
+#include "pool.h"
+#include "core.h"
 #endif

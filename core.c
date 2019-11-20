@@ -4,20 +4,24 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <errno.h>
-#include "core.h"
+
 #include <stdlib.h>
-#include "pool.h"
-#include "util.h"
+
+#include "core.h"
 
 #define MAX_FD_NUM 65535
 
-miniuv_container_t * miniuv_create_new_container(int type)
+miniuv_container_t * miniuv_create_new_container(int type, int thread_num)
 {
     miniuv_container_t *cont = NULL;
     struct epoll_event ev;
     int fd = -1;
     int ret = -1;
     miniuv_debug("input arg: type: %d\n", type);
+    if(thread_num < 0){
+        miniuv_debug("thread_num less than zero: %d\n", thread_num);
+        return cont;
+    }
     fd = epoll_create(MAX_FD_NUM);
     if(fd < 0){
         miniuv_debug("create_epoll error fd: %d\n", fd);
@@ -42,9 +46,21 @@ miniuv_container_t * miniuv_create_new_container(int type)
     if(ret != 0)
     {
         miniuv_debug("epoll_ctl failed ret: %d\n", ret);
+        close(cont->pipefd[0]);
+        close(cont->pipefd[1]);
         goto failed;
     }
     cont->node = NULL;
+
+    cont->pool = miniuv_create_threadpool(thread_num);
+    if(cont->pool == NULL)
+    {
+        miniuv_debug("create thread pool failed \n");
+        close(cont->fd);
+        close(cont->pipefd[0]);
+        close(cont->pipefd[1]);
+        goto failed;
+    }
     return cont;
 failed:
     free(cont);
@@ -54,7 +70,7 @@ failed:
 int miniuv_delete_container(miniuv_container_t *cont)
 {
     int ret = -1, ctrl = MINIUV_STOP_RUNNING;
-    miniuv_debug("\n");
+
     ret = write(cont->pipefd[1], &ctrl, sizeof(ctrl));
     if(ret <= 0)
     {
@@ -94,6 +110,9 @@ static int __delete_container(miniuv_container_t *cont)
     {
         miniuv_debug("epoll_ctl delete fd %d failed ret: %d\n",node->ev.data.fd, ret);
     }
+    
+    miniuv_destory_threadpool(cont->pool);
+
     close(cont->fd);
     close(cont->pipefd[0]);
     close(cont->pipefd[1]);
@@ -154,7 +173,7 @@ int miniuv_register_event(miniuv_container_t *cont, int fd, int event, miniuv_ev
 
 int miniuv_run(miniuv_container_t *cont)
 {
-    struct epoll_event ev;
+    struct epoll_event * pev = NULL;
     miniuv_event_node_t *node = NULL, *tmp = NULL;
     int ret = -1, ctrl = -1, len = -1;
     miniuv_debug("\n");
@@ -165,10 +184,15 @@ int miniuv_run(miniuv_container_t *cont)
     }
     while(1)
     {
-        ret = epoll_wait(cont->fd, &ev, 1, -1);
+        pev = malloc(sizeof(struct epoll_event));
+        if(pev == NULL)
+        {
+            continue;
+        }
+        ret = epoll_wait(cont->fd, pev, 1, -1);
         if(ret <= 0) continue;
 
-        if(cont->pipefd[0] == ev.data.fd)
+        if(cont->pipefd[0] == pev->data.fd)
         {
             len  = read(cont->pipefd[0],&ctrl, sizeof(int));
             if(len < 0) continue;
@@ -179,14 +203,14 @@ int miniuv_run(miniuv_container_t *cont)
                 break;
             }
         }
-        miniuv_debug("get a fd: %d, event: %d\n", ev.data.fd, ev.events);
+        miniuv_debug("get a fd: %d, event: %d\n", pev->data.fd, pev->events);
         for(node = cont->node; node != NULL; node = node->next)
         {
             miniuv_debug("seach fd: %d, event: %d\n", node->ev.data.fd, node->ev.events);
-            if(node->ev.data.fd == ev.data.fd)
+            if(node->ev.data.fd == pev->data.fd)
             {
-                miniuv_debug("found event in fd: %d event: %d\n", ev.data.fd, ev.events);
-                (*node->cb)(ev.data.fd, &ev);
+                miniuv_debug("found event in fd: %d event: %d\n", pev->data.fd, pev->events);
+                miniuv_add_task(cont->pool, node->cb, pev);//free
             }
         }
     }

@@ -11,23 +11,27 @@
 #include <fcntl.h>
     miniuv_container_t *cont = NULL;
 
-void test_cb(int fd,void *arg)
+void * test_cb(void *arg)
 {
     char buf[1024] = {0};
+	int fd = ((struct epoll_event *)(arg))->data.fd;
     printf("test_cb fd:%d, event: %d\n", fd, ((struct epoll_event *)(arg))->events);
     while(recv(fd,buf,1024,0) > 0)
     {
         printf("recv: %s\n", buf);
     }
     //close(cont->fd);
-    miniuv_delete_container(cont);
-
+    //miniuv_delete_container(cont);
+	sleep(10);
+	printf("6666666\n");
+return NULL;
     //exit(0);
     //close(fd);
 }
-void test_cb1(int fd,void *arg)
+void * test_cb1(void *arg)
 {
     struct sockaddr_in remote_addr; //客户端网络地址结构体
+	int fd = ((struct epoll_event *)(arg))->data.fd;
 	int sin_size;
 
     int client_sockfd;
@@ -36,13 +40,14 @@ void test_cb1(int fd,void *arg)
     if((client_sockfd=accept(fd,(struct sockaddr *)&remote_addr,&sin_size))<0)
 	{
 		perror("accept");
-		return;
+		return NULL;
 	}
         int flags = fcntl(client_sockfd, F_GETFL, 0);
     fcntl(client_sockfd, F_SETFL, flags | O_NONBLOCK);
     miniuv_register_event(cont, client_sockfd, EPOLLIN|EPOLLET, test_cb);
-    //miniuv_delete_container(cont);
-
+	sleep(10);
+    miniuv_delete_container(cont);
+return NULL;
 }
 int main(int argc, char *argv[])
 {
@@ -55,8 +60,8 @@ int main(int argc, char *argv[])
 	memset(&my_addr,0,sizeof(my_addr)); //数据初始化--清零
 	my_addr.sin_family=AF_INET; //设置为IP通信
 	my_addr.sin_addr.s_addr=INADDR_ANY;//服务器IP地址--允许连接到所有本地地址上
-	my_addr.sin_port=htons(9091); //服务器端口号
-	cont = miniuv_create_new_container(0);
+	my_addr.sin_port=htons(9090); //服务器端口号
+	cont = miniuv_create_new_container(0, 4);
 	/*创建服务器端套接字--IPv4协议，面向连接通信，TCP协议*/
 	if((server_sockfd=socket(PF_INET,SOCK_STREAM,0))<0)
 	{  

@@ -11,28 +11,26 @@
 #include "util.h"
 static int __push_task_queue(miniuv_thread_pool_t *pool, miniuv_thread_task_t *node)
 {
-    miniuv_thread_task_t *task = NULL, *tmp = NULL;
+    miniuv_thread_task_t *tmp = NULL;
 
     if(node == NULL)
         return FAILED;
-    task = malloc(sizeof(miniuv_thread_task_t));
-    if(task == NULL)
-        return FAILED;
+
     pool->task_count++;
-    memcpy(task, node, sizeof(miniuv_thread_task_t)); 
+
     if(pool->task_queue == NULL)
     {
-        pool->task_queue = task;
+        pool->task_queue = node;
         return SUCCESS;
     }  
     tmp = pool->task_queue;
-    pool->task_queue = task;
+    pool->task_queue = node;
     pool->task_queue->next = tmp;
     return SUCCESS;
 }
 
 
-static int __pop_task_queue(miniuv_thread_pool_t *pool, miniuv_thread_task_t *node)
+static int __pop_task_queue(miniuv_thread_pool_t *pool, miniuv_thread_task_t **node)
 {
     miniuv_thread_task_t *fw_tmp = NULL, *queue = pool->task_queue;
     if(queue == NULL)
@@ -41,11 +39,11 @@ static int __pop_task_queue(miniuv_thread_pool_t *pool, miniuv_thread_task_t *no
     for(queue, fw_tmp = queue;
         queue->next != NULL;
         fw_tmp = queue, queue = queue->next);
-    memcpy(node, queue, sizeof(miniuv_thread_task_t)); 
+    *node = queue;
     fw_tmp->next = NULL;
     if(fw_tmp == queue)
         pool->task_queue = NULL;
-    free(queue);
+
     return SUCCESS;
 }
 
@@ -64,7 +62,7 @@ static int __get_task_queue_size(miniuv_thread_pool_t *pool)
 
 static void * __task_cb(void *arg)
 {
-    miniuv_thread_task_t task;
+    miniuv_thread_task_t *task;
     miniuv_thread_pool_t *pool = (miniuv_thread_pool_t *)arg;
     while(1)
     {
@@ -93,7 +91,9 @@ static void * __task_cb(void *arg)
         }
 
         pthread_mutex_unlock(&(pool->lock));
-        (*(task.cb))(task.arg);
+        (*(task->cb))(task->arg);
+        free(task->arg);
+        free(task);
         
     }
 }
@@ -146,15 +146,21 @@ failed:
 
 int miniuv_add_task(miniuv_thread_pool_t *pool, void *(*cb)(void *), void *arg)
 {
-    miniuv_thread_task_t task;
+    miniuv_thread_task_t *task = NULL;
     if(pool == NULL)
     {
         miniuv_debug("thread pool is NULL\n");
         return FAILED;
     }
-    task.arg = arg;
-    task.cb = cb;
-    task.next = NULL;
+    task = malloc(sizeof(miniuv_thread_task_t));
+    if(task == NULL)
+    {
+        miniuv_debug("task malloc failed\n");
+        return FAILED;
+    }
+    task->arg = arg;
+    task->cb = cb;
+    task->next = NULL;
     pthread_mutex_lock(&(pool->lock));
 
     while (pool->task_count > pool->thread_num * 2)
@@ -162,9 +168,11 @@ int miniuv_add_task(miniuv_thread_pool_t *pool, void *(*cb)(void *), void *arg)
         miniuv_debug("not have empty thread, we neet to wait\n");
         pthread_cond_wait(&(pool->idle_cond), &(pool->lock));
     }
-    if(__push_task_queue(pool, &task))
+    if(__push_task_queue(pool, task))
     {
         pthread_mutex_unlock(&(pool->lock));
+        free(task);
+        free(arg);
         return FAILED;
     }
     pthread_mutex_unlock(&(pool->lock));
@@ -184,9 +192,10 @@ int  miniuv_destory_threadpool(miniuv_thread_pool_t *pool)
     pthread_mutex_lock(&(pool->lock));
     
     // wait all work finished
-
+    miniuv_debug("11111111.\n");
     while(pool->empty_num != pool->thread_num || pool->task_queue != NULL)
         pthread_cond_wait(&(pool->idle_cond), &(pool->lock));
+    miniuv_debug("22222222222222222.\n");
 
     pool->exit = 1;
     pthread_mutex_unlock(&(pool->lock));
